@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
-function ProductCard({ product, onAdd }) {
+function ProductCard({ product, onAdd, onBuyNow }) {
   return (
     <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       <img src={product.image} alt={product.title} className="w-full h-48 object-cover" />
@@ -15,12 +15,22 @@ function ProductCard({ product, onAdd }) {
         <p className="text-gray-500 text-sm line-clamp-2">{product.description}</p>
         <div className="flex items-center justify-between pt-2">
           <span className="text-lg font-bold">${product.price.toFixed(2)}</span>
-          <button
-            onClick={() => onAdd(product)}
-            className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-md text-sm"
-          >
-            Add to cart
-          </button>
+          <div className="flex items-center gap-2">
+            {product.buy_url && (
+              <button
+                onClick={() => onBuyNow(product.buy_url)}
+                className="bg-black hover:bg-gray-900 text-white px-3 py-1.5 rounded-md text-sm"
+              >
+                Buy now
+              </button>
+            )}
+            <button
+              onClick={() => onAdd(product)}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-md text-sm"
+            >
+              Add to cart
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -61,6 +71,70 @@ function Cart({ items, onCheckout }) {
   )
 }
 
+function AddProduct({ onCreated }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ title: '', price: '', category: '', image: '', buy_url: '', description: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!form.title || !form.price) {
+      setError('Title and price are required')
+      return
+    }
+    try {
+      setSaving(true)
+      const res = await fetch(`${BACKEND_URL}/api/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title,
+          price: parseFloat(form.price),
+          category: form.category || 'Other',
+          image: form.image || undefined,
+          buy_url: form.buy_url || undefined,
+          description: form.description || undefined,
+        })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || 'Failed to add product')
+      setForm({ title: '', price: '', category: '', image: '', buy_url: '', description: '' })
+      setOpen(false)
+      onCreated?.()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-4">
+      <button onClick={() => setOpen(o => !o)} className="text-sm underline">
+        {open ? 'Close add product' : 'Add a new product'}
+      </button>
+      {open && (
+        <form className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3" onSubmit={submit}>
+          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title *" className="border rounded-md px-3 py-2" />
+          <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="Price *" type="number" step="0.01" className="border rounded-md px-3 py-2" />
+          <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Category" className="border rounded-md px-3 py-2" />
+          <input value={form.image} onChange={e => setForm({ ...form, image: e.target.value })} placeholder="Image URL" className="border rounded-md px-3 py-2" />
+          <input value={form.buy_url} onChange={e => setForm({ ...form, buy_url: e.target.value })} placeholder="External Buy URL (Buy now)" className="border rounded-md px-3 py-2 md:col-span-2" />
+          <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" className="border rounded-md px-3 py-2 md:col-span-2" />
+          {error && <p className="text-sm text-red-600 md:col-span-2">{error}</p>}
+          <div className="md:col-span-2 flex justify-end">
+            <button disabled={saving} className="bg-gray-900 text-white px-4 py-2 rounded-md disabled:opacity-60">
+              {saving ? 'Saving...' : 'Add product'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
 function App() {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -69,23 +143,25 @@ function App() {
   const [cart, setCart] = useState([])
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true)
-        const url = new URL(`${BACKEND_URL}/api/products`)
-        if (query) url.searchParams.set('q', query)
-        if (category) url.searchParams.set('category', category)
-        const res = await fetch(url)
-        const data = await res.json()
-        setProducts(data)
-      } catch (e) {
-        setMessage('Failed to load products')
-      } finally {
-        setLoading(false)
-      }
+  const loadProducts = async () => {
+    try {
+      setLoading(true)
+      const url = new URL(`${BACKEND_URL}/api/products`)
+      if (query) url.searchParams.set('q', query)
+      if (category) url.searchParams.set('category', category)
+      const res = await fetch(url)
+      const data = await res.json()
+      setProducts(data)
+    } catch (e) {
+      setMessage('Failed to load products')
+    } finally {
+      setLoading(false)
     }
-    fetchProducts()
+  }
+
+  useEffect(() => {
+    loadProducts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, category])
 
   const addToCart = (p) => {
@@ -96,6 +172,11 @@ function App() {
       }
       return [...prev, { ...p, quantity: 1 }]
     })
+  }
+
+  const buyNow = (url) => {
+    if (!url) return
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const checkout = async (totals) => {
@@ -146,6 +227,7 @@ function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-4">
+          <AddProduct onCreated={loadProducts} />
           {loading ? (
             <p className="text-gray-500">Loading products...</p>
           ) : products.length === 0 ? (
@@ -158,7 +240,7 @@ function App() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {products.map((p, idx) => (
-                <ProductCard key={p.id || idx} product={p} onAdd={addToCart} />
+                <ProductCard key={p.id || idx} product={p} onAdd={addToCart} onBuyNow={buyNow} />
               ))}
             </div>
           )}
